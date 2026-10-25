@@ -5,5 +5,5 @@
 *.md text eol=lf
 *.yml text eol=lf
 gradlew text eol=lf
-*.bat text eol=crlf
+*.bat -text
 *.jar binary
