@@ -63,7 +63,7 @@ jobs:
           script: |
             ./gradlew connectedDebugAndroidTest
             mkdir -p test-evidence
-            adb pull /sdcard/Android/data/sk.preplatok.app/files/test-evidence test-evidence || true
+            adb pull /data/local/tmp/preplatok-home.png test-evidence/home.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:
