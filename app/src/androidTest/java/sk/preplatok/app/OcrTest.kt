@@ -13,6 +13,14 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OcrTest {
+    @Test fun exactSevenSegmentBitmapIsDecodedWithoutGuessing() {
+        val b=Bitmap.createBitmap(520,140,Bitmap.Config.ARGB_8888);val c=Canvas(b);c.drawColor(Color.WHITE)
+        val paint=Paint().apply { color=Color.BLACK }
+        val shapes=listOf(floatArrayOf(10f,0f,50f,10f),floatArrayOf(50f,10f,60f,50f),floatArrayOf(50f,50f,60f,90f),floatArrayOf(10f,90f,50f,100f),floatArrayOf(0f,50f,10f,90f),floatArrayOf(0f,10f,10f,50f),floatArrayOf(10f,45f,50f,55f))
+        val codes=listOf(0b1101101,0b1011011,0b1111111,0b1111111,0b1111110,0b1011111)
+        codes.forEachIndexed { i,bits -> shapes.forEachIndexed { segment,r -> if(bits and (1 shl (6-segment))!=0)c.drawRect(20f+i*80+r[0],20f+r[1],20f+i*80+r[2],20f+r[3],paint) } }
+        assertEquals("258806",ImageAnalysis.sevenSegment(b))
+    }
     @Test fun syntheticPdfInvoiceIsRenderedAndReadOffline() = runBlocking {
         val context=androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
         val file=java.io.File.createTempFile("invoice-fixture-",".pdf",context.cacheDir)
