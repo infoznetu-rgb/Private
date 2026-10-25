@@ -110,8 +110,18 @@ private fun ReviewReading(model: AppModel,energy: Energy,selected: Int,value: St
     val scan=model.scan
     val candidate=scan?.candidates?.getOrNull(selected)
     var alternatives by remember { mutableStateOf(false) }
+    var wholePhoto by remember(scan) { mutableStateOf(false) }
+    val enlarged=remember(scan,selected) {
+        if(scan!=null && candidate!=null) {
+            val b=scan.bitmap;val r=candidate.rect;val margin=r.height()/2
+            MeterOcr.crop(b,((r.left-margin).coerceAtLeast(0)).toFloat()/b.width,((r.top-margin).coerceAtLeast(0)).toFloat()/b.height,((r.right+margin).coerceAtMost(b.width)).toFloat()/b.width,((r.bottom+margin).coerceAtMost(b.height)).toFloat()/b.height)
+        } else scan?.bitmap
+    }
     PageColumn {
-        if(scan!=null)Image(scan.bitmap.asImageBitmap(),"Fotografia merača na kontrolu",Modifier.fillMaxWidth().heightIn(max=220.dp))
+        if(scan!=null) {
+            Image((if(wholePhoto)scan.bitmap else enlarged ?: scan.bitmap).asImageBitmap(),"Displej merača na kontrolu",Modifier.fillMaxWidth().heightIn(max=220.dp))
+            TextButton(onClick={wholePhoto=!wholePhoto}){Text(if(wholePhoto)"Priblížiť displej" else "Zobraziť celú fotografiu")}
+        }
         if(candidate==null) {
             if(!model.busy) { Text("Číslo sa nepodarilo spoľahlivo prečítať.",style=MaterialTheme.typography.headlineSmall);Text("Nebudeme ho hádať. Zadajte číslo z displeja alebo skúste novú fotku.") }
         } else {

@@ -35,6 +35,8 @@ class AppModel @JvmOverloads constructor(application: Application, databaseName:
     }
     fun recognize(uri: Uri, energy: Energy = Energy.ELECTRICITY, isInvoice: Boolean = false) {
         if (busy) return
+        scan=null;proof=null
+        if(isInvoice)invoice=null
         busy = true
         viewModelScope.launch {
             try {
@@ -46,7 +48,8 @@ class AppModel @JvmOverloads constructor(application: Application, databaseName:
                     proof=result.bitmap
                 } else { val bitmap=MeterOcr.load(getApplication(),uri);scan=MeterOcr.recognize(bitmap,energy); proof=bitmap }
             }
-            catch (e: Exception) { message = "Fotografiu sa nepodarilo rozpoznať. Skúste inú fotku alebo ručný odpočet. ${e.localizedMessage ?: ""}" }
+            catch (_: OutOfMemoryError) { scan=null;proof=null;invoice=null;message="Fotografia je priveľká pre dostupnú pamäť. Skúste menšiu snímku alebo zadajte údaj ručne." }
+            catch (e: Exception) { message = "Fotografiu alebo faktúru sa nepodarilo prečítať. Skúste inú snímku alebo zadajte údaje ručne." }
             finally { busy = false }
         }
     }
@@ -56,6 +59,7 @@ class AppModel @JvmOverloads constructor(application: Application, databaseName:
         busy = true
         viewModelScope.launch {
             try { scan = MeterOcr.recognize(withContext(Dispatchers.Default) { MeterOcr.crop(bitmap, left, top, right, bottom) },scanEnergy) }
+            catch (_: OutOfMemoryError) { scan=null;proof=null;message="Na spracovanie výrezu nie je dosť pamäte. Zadajte odpočet ručne." }
             catch (e: Exception) { message = "Výrez sa nepodarilo rozpoznať. Zadajte odpočet ručne." }
             finally { busy = false }
         }

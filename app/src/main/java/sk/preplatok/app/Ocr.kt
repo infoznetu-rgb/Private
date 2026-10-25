@@ -47,7 +47,8 @@ object MeterOcr {
         resolver.openInputStream(uri).use { BitmapFactory.decodeStream(it, null, bounds) }
         require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Fotografiu sa nepodarilo otvoriť." }
         var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2600) sample *= 2
+        val limit=if(Runtime.getRuntime().maxMemory()<=64L*1024*1024)1200 else 2400
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > limit) sample *= 2
         val decoded = resolver.openInputStream(uri).use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) } ?: error("Neplatná fotografia.")
         val orientation = resolver.openInputStream(uri).use { stream -> if (stream != null) ExifInterface(stream).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) else ExifInterface.ORIENTATION_NORMAL }
         val matrix = Matrix().apply {

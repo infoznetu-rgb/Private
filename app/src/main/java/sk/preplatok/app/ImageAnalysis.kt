@@ -12,8 +12,13 @@ data class PhotoQuality(val blur: Boolean, val glare: Boolean) {
 }
 internal data class Gray(val width: Int,val height: Int,val pixels: IntArray)
 internal object ImageAnalysis {
+    // Keep temporary Java arrays bounded even on devices with a small application heap.
+    private fun memoryLimit(requested: Int): Int {
+        val heap=Runtime.getRuntime().maxMemory()/1024/1024
+        return min(requested,when { heap<=32 -> 400;heap<=64 -> 720;heap<=128 -> 1100;else -> 1600 })
+    }
     fun gray(bitmap: Bitmap, limit: Int = 1200): Gray {
-        val scale = min(1f, limit.toFloat()/max(bitmap.width,bitmap.height))
+        val scale = min(1f, memoryLimit(limit).toFloat()/max(bitmap.width,bitmap.height))
         val b = if(scale < 1) Bitmap.createScaledBitmap(bitmap,max(1,(bitmap.width*scale).toInt()),max(1,(bitmap.height*scale).toInt()),true) else bitmap
         val p = IntArray(b.width*b.height); b.getPixels(p,0,b.width,0,0,b.width,b.height)
         for(i in p.indices) { val c=p[i]; p[i]=(Color.red(c)*77 + Color.green(c)*150 + Color.blue(c)*29) shr 8 }
@@ -31,13 +36,14 @@ internal object ImageAnalysis {
         return PhotoQuality(variance<65, n>0 && clipped.toFloat()/n>0.12f)
     }
     fun adjusted(bitmap: Bitmap, binary: Boolean): Bitmap {
-        val g=gray(bitmap,2000)
+        val g=gray(bitmap,1600)
         val histogram=IntArray(256);g.pixels.forEach { histogram[it]++ }
         fun percentile(target: Int): Int { var count=0;for(i in histogram.indices){count+=histogram[i];if(count>=target)return i};return 255 }
         val lo=percentile(g.pixels.size/50);val hi=percentile(g.pixels.size*49/50).coerceAtLeast(lo+1)
         val threshold=otsu(g)
-        val pixels=IntArray(g.pixels.size) { i -> val v=if(binary) { if(g.pixels[i]<threshold) 0 else 255 } else ((g.pixels[i]-lo)*255/(hi-lo)).coerceIn(0,255); Color.rgb(v,v,v) }
-        return Bitmap.createBitmap(pixels,g.width,g.height,Bitmap.Config.ARGB_8888)
+        // Reuse the luminance array for ARGB output instead of allocating a second full image array.
+        for(i in g.pixels.indices) { val v=if(binary) { if(g.pixels[i]<threshold)0 else 255 } else ((g.pixels[i]-lo)*255/(hi-lo)).coerceIn(0,255);g.pixels[i]=Color.rgb(v,v,v) }
+        return Bitmap.createBitmap(g.pixels,g.width,g.height,Bitmap.Config.ARGB_8888)
     }
     fun otsu(g: Gray): Int {
         val hist=IntArray(256);g.pixels.forEach { hist[it]++ }
