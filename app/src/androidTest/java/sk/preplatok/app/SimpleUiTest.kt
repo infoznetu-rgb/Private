@@ -36,9 +36,12 @@ class SimpleUiTest: BaseUiTest() {
         val folder=context.getExternalFilesDir("test-evidence")!!.apply { mkdirs() }
         File(folder,"home.png").outputStream().use { compose.onRoot().captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) }
         // Gradle uninstalls the test app after the suite, so preserve visual evidence outside app data first.
-        val command=InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("cp ${File(folder,"home.png").absolutePath} /data/local/tmp/preplatok-home.png && echo copied")
-        val result=android.os.ParcelFileDescriptor.AutoCloseInputStream(command).bufferedReader().use { it.readText().trim() }
-        org.junit.Assert.assertEquals("copied",result)
+        val automation=InstrumentationRegistry.getInstrumentation().uiAutomation
+        val command=automation.executeShellCommand("cp ${File(folder,"home.png").absolutePath} /data/local/tmp/preplatok-home.png")
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(command).use { it.readBytes() }
+        val listing=automation.executeShellCommand("ls /data/local/tmp/preplatok-home.png")
+        val result=android.os.ParcelFileDescriptor.AutoCloseInputStream(listing).bufferedReader().use { it.readText().trim() }
+        org.junit.Assert.assertEquals("/data/local/tmp/preplatok-home.png",result)
     }
     @Test fun invalidManualInputCannotCreateAReading() {
         compose.onNodeWithText("Zadať ručne").performClick()
