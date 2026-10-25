@@ -13,6 +13,31 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OcrTest {
+    @Test fun blankPhotoDoesNotProduceInventedDigits() = runBlocking {
+        val blank=Bitmap.createBitmap(640,360,Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(180,180,180)) }
+        assertTrue(MeterOcr.recognize(blank).candidates.isEmpty())
+        assertTrue(ImageAnalysis.quality(ImageAnalysis.gray(blank)).blur)
+    }
+    @Test fun syntheticWholeMeterFindsDisplayWithoutManualCrop() = runBlocking {
+        val b=Bitmap.createBitmap(1280,800,Bitmap.Config.ARGB_8888)
+        val c=Canvas(b);c.drawColor(Color.rgb(220,215,205));val p=Paint(Paint.ANTI_ALIAS_FLAG)
+        p.color=Color.DKGRAY;c.drawRoundRect(180f,130f,1100f,650f,30f,30f,p)
+        p.color=Color.rgb(186,205,175);c.drawRect(250f,260f,1020f,480f,p)
+        p.color=Color.BLACK;p.textSize=135f;p.typeface=Typeface.MONOSPACE;c.drawText("258806",280f,420f,p)
+        p.textSize=42f;c.drawText("kWh",880f,470f,p)
+        assertTrue("No automatic display regions",ImageAnalysis.displayRegions(b).isNotEmpty())
+        val scan=MeterOcr.recognize(b)
+        assertTrue("Synthetic whole-meter fixture: ${scan.candidates}",scan.candidates.any { it.text=="258806" && !it.blocked })
+    }
+    @Test fun syntheticInvoiceImageIsReadLocally() = runBlocking {
+        val b=Bitmap.createBitmap(1900,1000,Bitmap.Config.ARGB_8888);val c=Canvas(b);c.drawColor(Color.WHITE)
+        val p=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.BLACK;textSize=52f;typeface=Typeface.DEFAULT }
+        listOf("FAKTURA - ELEKTRINA","Cena 0,245 EUR/kWh vratane DPH","Mesacna zaloha 45,00 EUR","Fakturacne obdobie 01.01.2026 - 31.12.2026").forEachIndexed { i,line -> c.drawText(line,70f,150f+i*140f,p) }
+        val draft=InvoiceParser.parse(MeterOcr.document(b),Energy.ELECTRICITY)
+        assertTrue("Invoice price not found: $draft",draft.prices.any { decimal(it.value)?.compareTo("0.245".toBigDecimal())==0 })
+        assertTrue(draft.advances.any { decimal(it.value)?.compareTo("45".toBigDecimal())==0 })
+        assertTrue(draft.periods.contains(java.time.LocalDate.of(2026,1,1) to java.time.LocalDate.of(2026,12,31)))
+    }
     @Test fun bundledModelRecognizesCleanDigitsWithoutAppNetworkPermission() = runBlocking {
         val bitmap = Bitmap.createBitmap(1200,300,Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)

@@ -16,8 +16,8 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
-data class Candidate(val text: String, val rect: Rect)
-data class Scan(val bitmap: Bitmap, val candidates: List<Candidate>)
+data class Candidate(val text: String, val rect: Rect, val warnings: List<String> = emptyList(), val blocked: Boolean = false, val evidence: String = "", val passes: Int = 1)
+data class Scan(val bitmap: Bitmap, val candidates: List<Candidate>, val warnings: List<String> = emptyList())
 object MeterOcr {
     suspend fun load(context: Context, uri: Uri): Bitmap = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
@@ -41,15 +41,69 @@ object MeterOcr {
         }
         Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
     }
-    suspend fun recognize(bitmap: Bitmap): Scan = suspendCoroutine { continuation ->
+    private suspend fun raw(bitmap: Bitmap, client: com.google.mlkit.vision.text.TextRecognizer): com.google.mlkit.vision.text.Text = suspendCoroutine { continuation ->
+        client.process(InputImage.fromBitmap(bitmap,0)).addOnSuccessListener { continuation.resume(it) }.addOnFailureListener { continuation.resumeWithException(it) }
+    }
+    suspend fun document(bitmap: Bitmap): String {
         val client = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-        client.process(InputImage.fromBitmap(bitmap, 0)).addOnSuccessListener { text ->
-            val candidates = text.textBlocks.flatMap { it.lines }.flatMap { line ->
-                val box = line.boundingBox ?: return@flatMap emptyList<Candidate>()
-                OcrNumbers.candidates(line.text).map { Candidate(it, Rect(box)) }
-            }.distinctBy { Pair(it.text, it.rect) }.sortedByDescending { it.rect.height() * it.text.count(Char::isDigit) }.take(12)
-            client.close(); continuation.resume(Scan(bitmap, candidates))
-        }.addOnFailureListener { client.close(); continuation.resumeWithException(it) }
+        try {
+            val original=raw(bitmap,client).text
+            val adjusted=withContext(Dispatchers.Default) { ImageAnalysis.adjusted(bitmap,false) }
+            return try { original+"\n"+raw(adjusted,client).text } finally { adjusted.recycle() }
+        } finally { client.close() }
+    }
+    suspend fun recognize(bitmap: Bitmap, energy: Energy = Energy.ELECTRICITY): Scan {
+        val client=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val found=mutableListOf<Candidate>()
+        val regionHints=mutableListOf<Rect>()
+        var fullUnit: String? = null
+        suspend fun pass(image: Bitmap, region: Rect, label: String) {
+            val lines=raw(image,client).textBlocks.flatMap { it.lines }
+            if(region.width()==bitmap.width && region.height()==bitmap.height) {
+                val units=lines.mapNotNull { ReadingRules.inspect(it.text,energy).unit }.distinct()
+                if(units.size==1)fullUnit=units.single()
+            }
+            for(line in lines) {
+                val box=line.boundingBox ?: continue
+                val nearby=lines.filter { other -> other !== line && other.boundingBox?.let { kotlin.math.abs(it.centerY()-box.centerY()) < box.height()*1.6 && kotlin.math.abs(it.centerX()-box.centerX())<box.width()+box.height()*5 } == true }.joinToString(" ") { it.text }
+                val evidence=line.text+" "+nearby
+                val inspection=ReadingRules.inspect(evidence,energy)
+                val global=Rect(region.left+box.left*region.width()/image.width,region.top+box.top*region.height()/image.height,region.left+box.right*region.width()/image.width,region.top+box.bottom*region.height()/image.height)
+                val values=ReadingRules.numericValues(line.text)
+                for(value in values) found+=Candidate(value,global,inspection.warnings,inspection.blocked,"$label · ${line.text}")
+                if(values.isNotEmpty())regionHints+=global
+            }
+        }
+        try {
+            val all=Rect(0,0,bitmap.width,bitmap.height)
+            pass(bitmap,all,"Pôvodná snímka")
+            val contrasted=withContext(Dispatchers.Default) { ImageAnalysis.adjusted(bitmap,false) }
+            try { pass(contrasted,all,"Zvýšený kontrast") } finally { contrasted.recycle() }
+            val detected=withContext(Dispatchers.Default) { ImageAnalysis.displayRegions(bitmap) }
+            val regions=(regionHints.sortedByDescending { it.height()*it.width() }.take(3)+detected).distinctBy { listOf(it.centerX()/50,it.centerY()/50,it.width()/70) }.take(6)
+            for(r in regions) {
+                val margin=(r.height()/4).coerceAtLeast(3)
+                val expanded=Rect((r.left-margin).coerceAtLeast(0),(r.top-margin).coerceAtLeast(0),(r.right+margin).coerceAtMost(bitmap.width),(r.bottom+margin).coerceAtMost(bitmap.height))
+                if(expanded.width()<10 || expanded.height()<10)continue
+                val cropped=Bitmap.createBitmap(bitmap,expanded.left,expanded.top,expanded.width(),expanded.height())
+                try {
+                    pass(cropped,expanded,"Automatický displej")
+                    val binary=withContext(Dispatchers.Default) { ImageAnalysis.adjusted(cropped,true) }
+                    try { pass(binary,expanded,"Čiernobiely displej") } finally { binary.recycle() }
+                    val segmentValue=withContext(Dispatchers.Default) { ImageAnalysis.sevenSegment(cropped) }
+                    if(segmentValue!=null) found+=Candidate(segmentValue,expanded,listOf("Návrh zo segmentov. Overte desatinnú čiarku aj všetky číslice."),evidence="Sedemsegmentový displej")
+                } finally { if(cropped !== bitmap)cropped.recycle() }
+            }
+            val grouped=found.groupBy { decimal(it.text)?.stripTrailingZeros()?.toPlainString() ?: it.text }.values.map { alternatives ->
+                val representative=alternatives.maxBy { it.rect.height()*it.text.count(Char::isDigit) }
+                val blocked=alternatives.any { it.blocked } || (fullUnit!=null && fullUnit!=energy.unit)
+                representative.copy(blocked=blocked,passes=alternatives.map { it.evidence.substringBefore(" ·") }.distinct().size,warnings=(alternatives.flatMap { it.warnings }+if(fullUnit!=null && fullUnit!=energy.unit) listOf("Jednotka $fullUnit nezodpovedá ${energy.unit}.") else emptyList()).distinct())
+            }.sortedWith(compareBy<Candidate> { it.blocked }.thenByDescending { it.passes }.thenByDescending { it.rect.height()*it.text.count(Char::isDigit) }).take(8)
+            val quality=withContext(Dispatchers.Default) { ImageAnalysis.quality(ImageAnalysis.gray(bitmap,640)) }
+            val warnings=quality.warnings.toMutableList()
+            if(grouped.map { it.text }.distinct().size>1)warnings+="Na snímke sú rôzne čísla. Porovnajte návrh s displejom."
+            return Scan(bitmap,grouped,warnings)
+        } finally { client.close() }
     }
     fun crop(bitmap: Bitmap, left: Float, top: Float, right: Float, bottom: Float): Bitmap {
         val x = (left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)

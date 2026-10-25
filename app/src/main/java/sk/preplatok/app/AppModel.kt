@@ -11,14 +11,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class AppModel(application: Application) : AndroidViewModel(application) {
-    private val store = Store(application)
+class AppModel @JvmOverloads constructor(application: Application, databaseName: String = "energy.db") : AndroidViewModel(application) {
+    private val store = Store(application,databaseName)
     var data by mutableStateOf(Snapshot(emptyList(), emptyList(), emptyList())); private set
     var ready by mutableStateOf(false); private set
     var busy by mutableStateOf(false); private set
     var message by mutableStateOf<String?>(null)
     var scan by mutableStateOf<Scan?>(null)
     var proof by mutableStateOf<android.graphics.Bitmap?>(null)
+    var invoice by mutableStateOf<InvoiceDraft?>(null)
+    private var scanEnergy = Energy.ELECTRICITY
     private var pendingRestore: String? = null
     var restoreCount by mutableStateOf<String?>(null); private set
     init { viewModelScope.launch { data = withContext(Dispatchers.IO) { store.snapshot() }; ready = true } }
@@ -31,11 +33,16 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             finally { busy = false }
         }
     }
-    fun recognize(uri: Uri) {
+    fun recognize(uri: Uri, energy: Energy = Energy.ELECTRICITY, isInvoice: Boolean = false) {
         if (busy) return
         busy = true
         viewModelScope.launch {
-            try { scan = MeterOcr.recognize(MeterOcr.load(getApplication(), uri)) }
+            try {
+                val bitmap=MeterOcr.load(getApplication(),uri)
+                scanEnergy=energy
+                if(isInvoice) { invoice=InvoiceParser.parse(MeterOcr.document(bitmap),energy); proof=bitmap }
+                else { scan=MeterOcr.recognize(bitmap,energy); proof=bitmap }
+            }
             catch (e: Exception) { message = "Fotografiu sa nepodarilo rozpoznať. Skúste inú fotku alebo ručný odpočet. ${e.localizedMessage ?: ""}" }
             finally { busy = false }
         }
@@ -45,7 +52,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         if (busy) return
         busy = true
         viewModelScope.launch {
-            try { scan = MeterOcr.recognize(withContext(Dispatchers.Default) { MeterOcr.crop(bitmap, left, top, right, bottom) }) }
+            try { scan = MeterOcr.recognize(withContext(Dispatchers.Default) { MeterOcr.crop(bitmap, left, top, right, bottom) },scanEnergy) }
             catch (e: Exception) { message = "Výrez sa nepodarilo rozpoznať. Zadajte odpočet ručne." }
             finally { busy = false }
         }

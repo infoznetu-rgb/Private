@@ -67,7 +67,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { MaterialTheme(colorScheme = lightColorScheme(primary = Green, background = Color(0xFFF5F8F5), surface = Color.White, onSurface = Ink, secondaryContainer = Color(0xFFDCEEE6))) { EnergyApp() } }
+        setContent { MaterialTheme(colorScheme = lightColorScheme(primary = Green, background = Color(0xFFF5F8F5), surface = Color.White, onSurface = Ink, secondaryContainer = Color(0xFFDCEEE6))) { SimpleEnergyApp() } }
     }
 }
 
@@ -124,7 +124,7 @@ fun EnergyApp(model: AppModel = viewModel()) {
 }
 
 @Composable
-private fun Section(title: String, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) {
+internal fun Section(title: String, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -136,7 +136,7 @@ private fun Section(title: String, subtitle: String? = null, content: @Composabl
 @Composable
 private fun Stat(label: String, value: String) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, color = Muted, modifier = Modifier.weight(1f)); Text(value, fontWeight = FontWeight.SemiBold) } }
 @Composable
-private fun PageColumn(content: @Composable ColumnScope.() -> Unit) { Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp), content = content) }
+internal fun PageColumn(content: @Composable ColumnScope.() -> Unit) { Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp), content = content) }
 
 @Composable
 private fun Overview(data: Snapshot, e: Energy, onAdd: () -> Unit) {
@@ -179,11 +179,11 @@ private fun Overview(data: Snapshot, e: Energy, onAdd: () -> Unit) {
 private fun ConsumptionChart(readings: List<Reading>) {
     val intervals = readings.zipWithNext().takeLast(12).map { (a,b) -> b.date to (b.value - a.value).toFloat() / ChronoUnit.DAYS.between(a.date,b.date).coerceAtLeast(1) }
     if(intervals.isEmpty()) return
-    val max = intervals.maxOf { it.second }.coerceAtLeast(0.001f)
+    val max = intervals.maxOf { it.second }
     Canvas(Modifier.fillMaxWidth().height(140.dp)) {
         val step = size.width / intervals.size
         drawLine(Color(0xFFE5ECE6), Offset(0f, size.height), Offset(size.width, size.height), 2f)
-        intervals.forEachIndexed { i, pair -> val h = (pair.second / max) * (size.height - 10); drawRoundRect(Green, Offset(step * i + step * 0.15f, size.height - h), Size(step * 0.7f, h.coerceAtLeast(2f)), androidx.compose.ui.geometry.CornerRadius(6f,6f)) }
+        intervals.forEachIndexed { i, pair -> val h = (pair.second / max.coerceAtLeast(0.001f)) * (size.height - 10); drawRoundRect(Green, Offset(step * i + step * 0.15f, size.height - h), Size(step * 0.7f, h.coerceAtLeast(2f)), androidx.compose.ui.geometry.CornerRadius(6f,6f)) }
     }
     Stat(intervals.first().first.pretty(), intervals.last().first.pretty())
     Text("Maximum ${BigDecimal(max.toString()).display(3)} za deň • ${intervals.size} intervalov", color = Muted, fontSize = 12.sp)
@@ -229,19 +229,20 @@ private fun ReadingForm(model: AppModel, energy: Energy, editing: Reading?, sugg
 }
 
 @Composable
-private fun NumberField(label: String, value: String, onChange: (String) -> Unit) { OutlinedTextField(value = value, onValueChange = { if(it.length <= 20) onChange(it) }, label = { Text(label) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth()) }
+internal fun NumberField(label: String, value: String, onChange: (String) -> Unit) { OutlinedTextField(value = value, onValueChange = { if(it.length <= 20) onChange(it) }, label = { Text(label) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth()) }
 @Composable
-private fun DateField(label: String, value: String, onChange: (String) -> Unit) {
+internal fun DateField(label: String, value: String, onChange: (String) -> Unit) {
     val context = LocalContext.current
     OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { val d = value.date() ?: LocalDate.now(); DatePickerDialog(context, { _, y, m, day -> onChange(LocalDate.of(y,m+1,day).toString()) }, d.year,d.monthValue-1,d.dayOfMonth).show() }) { Icon(Icons.Rounded.CalendarMonth, null); Spacer(Modifier.width(8.dp)); Text("$label: ${value.date()?.pretty() ?: value}") }
 }
 
 @Composable
-private fun History(model: AppModel, energy: Energy, onAdd: () -> Unit, onEdit: (Reading) -> Unit) {
+internal fun History(model: AppModel, energy: Energy, onAdd: () -> Unit, onEdit: (Reading) -> Unit) {
     var deleting by remember { mutableStateOf<Reading?>(null) }
     val readings = model.data.readings.filter { it.energy == energy }.sortedByDescending { it.date }
     PageColumn {
         Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null); Text("Pridať odpočet") }
+        Section("Vývoj spotreby", "Priemer za deň (${energy.unit}/deň)") { ConsumptionChart(readings.sortedBy { it.date }) }
         if(readings.isEmpty()) Section("História je zatiaľ prázdna") { Text("Prvý odpočet nastaví východiskový stav merača.", color = Muted) }
         readings.forEach { r ->
             Section(r.date.pretty()) {
@@ -258,7 +259,7 @@ private fun History(model: AppModel, energy: Energy, onAdd: () -> Unit, onEdit: 
 }
 
 @Composable
-private fun Settings(model: AppModel, energy: Energy, onExport: () -> Unit, onRestore: () -> Unit) {
+internal fun Settings(model: AppModel, energy: Energy, onExport: () -> Unit, onRestore: () -> Unit) {
     val tariff = model.data.tariff(energy)
     var price by rememberSaveable(energy, tariff) { mutableStateOf(tariff.price.toPlainString()) }
     var fixed by rememberSaveable(energy, tariff) { mutableStateOf(tariff.fixed.toPlainString()) }
@@ -271,17 +272,17 @@ private fun Settings(model: AppModel, energy: Energy, onExport: () -> Unit, onRe
     var deleting by remember { mutableStateOf<Payment?>(null) }
     PageColumn {
         Section("Ceny · ${energy.title}", "Konečné ceny vrátane DPH a distribúcie. Nulová cena znamená neúplný odhad.") {
-            NumberField(if(energy == Energy.GAS) "Cena za kWh (€)" else "Cena za ${energy.unit} (€)", price) { price = it }
+            NumberField("Cena za ${if(tariff.priceUnit=="m3")"m³" else "kWh"} (€)", price) { price = it }
             NumberField("Stály mesačný poplatok (€)", fixed) { fixed = it }
             NumberField("Plánovaná mesačná záloha (€)", advance) { advance = it }
-            if(energy == Energy.GAS) { NumberField("Prevodný faktor kWh / m³", factor) { factor = it }; Text("Zadajte faktor podľa vyúčtovania dodávateľa. Pri fakturácii v m³ nastavte faktor 1 a cenu za m³.", fontSize = 12.sp, color = Muted) }
+            if(energy == Energy.GAS && tariff.priceUnit!="m3") { NumberField("Prevodný faktor kWh / m³", factor) { factor = it }; Text("Zadajte faktor podľa vyúčtovania dodávateľa.", fontSize = 12.sp, color = Muted) }
             DateField("Začiatok sledovaného obdobia", start) { start = it }
             Text("Zmena cien prepočíta celé zobrazené obdobie. Pri zmene tarify urobte zálohu a začnite nové obdobie s odpočtom k jeho začiatku.", fontSize = 12.sp, color = Muted)
             if(error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
             Button(enabled = !model.busy, modifier = Modifier.fillMaxWidth(), onClick = {
                 val p = decimal(price); val f = decimal(fixed); val a = decimal(advance); val k = if(energy == Energy.GAS) decimal(factor) else BigDecimal.ONE; val d = start.date()
                 if(p == null || f == null || a == null || k == null || k.signum() <= 0 || d == null || d.year !in 1900..2200) error = "Zadajte platné nezáporné ceny a kladný prevodný faktor."
-                else { error = null; model.change({ save(Tariff(energy,p,f,a,k,d)) }) { model.message = "Nastavenia boli uložené." } }
+                else { error = null; model.change({ save(Tariff(energy,p,f,a,k,d,tariff.end?.takeIf { it>=d },tariff.priceUnit)) }) { model.message = "Nastavenia boli uložené." } }
             }) { Text("Uložiť nastavenia") }
         }
         Section("Zaplatené zálohy", "Zapisujte skutočne uhradené platby. Mesačný plán sa automaticky nepovažuje za zaplatený.") {
@@ -308,7 +309,7 @@ private fun Settings(model: AppModel, energy: Energy, onExport: () -> Unit, onRe
 }
 
 @Composable
-private fun Scanner(scan: Scan, busy: Boolean, onCrop: (Float,Float,Float,Float) -> Unit, onPick: (String) -> Unit, onManual: () -> Unit) {
+internal fun Scanner(scan: Scan, busy: Boolean, onCrop: (Float,Float,Float,Float) -> Unit, onPick: (String) -> Unit, onManual: () -> Unit) {
     val bitmap = scan.bitmap
     val suggested = scan.candidates.firstOrNull()?.rect
     fun normalized(rect: android.graphics.Rect?): List<Float> = if(rect == null) listOf(0.1f,0.25f,0.9f,0.75f) else listOf((rect.left.toFloat()/bitmap.width - 0.02f).coerceIn(0f,0.98f), (rect.top.toFloat()/bitmap.height - 0.03f).coerceIn(0f,0.98f), (rect.right.toFloat()/bitmap.width + 0.02f).coerceIn(0.02f,1f), (rect.bottom.toFloat()/bitmap.height + 0.03f).coerceIn(0.02f,1f))

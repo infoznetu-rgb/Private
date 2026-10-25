@@ -15,7 +15,7 @@ fun BigDecimal.measurement(): String = stripTrailingZeros().toPlainString().repl
 fun String.date(): LocalDate? = runCatching { LocalDate.parse(this) }.getOrNull()
 data class Reading(val id: String = UUID.randomUUID().toString(), val energy: Energy, val date: LocalDate, val value: BigDecimal, val note: String = "", val source: String = "Ručne")
 data class Payment(val id: String = UUID.randomUUID().toString(), val energy: Energy, val date: LocalDate, val amount: BigDecimal)
-data class Tariff(val energy: Energy, val price: BigDecimal = BigDecimal.ZERO, val fixed: BigDecimal = BigDecimal.ZERO, val advance: BigDecimal = BigDecimal.ZERO, val factor: BigDecimal = BigDecimal.ONE, val start: LocalDate = LocalDate.now().withDayOfYear(1))
+data class Tariff(val energy: Energy, val price: BigDecimal = BigDecimal.ZERO, val fixed: BigDecimal = BigDecimal.ZERO, val advance: BigDecimal = BigDecimal.ZERO, val factor: BigDecimal = BigDecimal.ONE, val start: LocalDate = LocalDate.now().withDayOfYear(1), val end: LocalDate? = null, val priceUnit: String = if(energy==Energy.WATER)"m3" else "kwh")
 data class Snapshot(val readings: List<Reading>, val payments: List<Payment>, val tariffs: List<Tariff>) {
     fun tariff(e: Energy) = tariffs.firstOrNull { it.energy == e } ?: Tariff(e)
 }
@@ -45,11 +45,11 @@ object Calculations {
     }
     fun summary(data: Snapshot, energy: Energy): Summary? {
         val t = data.tariff(energy)
-        val rs = data.readings.filter { it.energy == energy && it.date >= t.start }.sortedBy { it.date }
+        val rs = data.readings.filter { it.energy == energy && it.date >= t.start && (t.end == null || it.date <= t.end) }.sortedBy { it.date }
         if (rs.size < 2) return null
         val first = rs.first(); val last = rs.last()
         val used = last.value - first.value
-        val cost = used.multiply(t.factor).multiply(t.price) + fixedCost(first.date, last.date, t.fixed)
+        val cost = used.multiply(if(t.priceUnit=="m3")BigDecimal.ONE else t.factor).multiply(t.price) + fixedCost(first.date, last.date, t.fixed)
         val paid = data.payments.filter { it.energy == energy && it.date >= first.date && it.date < last.date }.fold(BigDecimal.ZERO) { acc, p -> acc + p.amount }
         var month = first.date.withDayOfMonth(1)
         var count = 0
