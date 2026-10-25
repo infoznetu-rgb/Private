@@ -12,8 +12,8 @@ import java.time.LocalDate
 class StoreTest {
     @Test fun backupRoundTripAndInvalidBackupLeavesDataIntact() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        context.deleteDatabase("energy.db")
-        val store = Store(context)
+        val databaseName = "test-${java.util.UUID.randomUUID()}.db"
+        val store = Store(context, databaseName)
         try {
             val r = Reading(energy = Energy.WATER,date = LocalDate.of(2026,1,1),value = BigDecimal("00123.456"),note = "Kúpeľňa")
             store.save(r)
@@ -27,6 +27,6 @@ class StoreTest {
             val before = store.export()
             try { store.restore(backup.replace("123.456","-123.456")); fail("Invalid value accepted") } catch (_: IllegalArgumentException) { }
             assertEquals(before,store.export())
-        } finally { store.close(); context.deleteDatabase("energy.db") }
+        } finally { store.close(); context.deleteDatabase(databaseName) }
     }
 }

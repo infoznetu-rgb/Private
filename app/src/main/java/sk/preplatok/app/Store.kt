@@ -8,7 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 
-class Store(context: Context) : SQLiteOpenHelper(context, "energy.db", null, 1) {
+class Store(context: Context, databaseName: String = "energy.db") : SQLiteOpenHelper(context, databaseName, null, 1) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE readings(id TEXT PRIMARY KEY, energy TEXT NOT NULL, day TEXT NOT NULL, value TEXT NOT NULL, note TEXT NOT NULL, source TEXT NOT NULL, UNIQUE(energy,day))")
         db.execSQL("CREATE TABLE payments(id TEXT PRIMARY KEY, energy TEXT NOT NULL, day TEXT NOT NULL, amount TEXT NOT NULL)")
