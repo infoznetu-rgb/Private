@@ -39,6 +39,7 @@ fun SimpleEnergyApp(model: AppModel = viewModel(), startDestination: String = "h
     fun newDraft() { draftId=null;draftValue="";draftDate=LocalDate.now().toString();draftNote="";source="Ručne";model.scan=null;model.proof=null;error=null }
     fun photo(uri: android.net.Uri) { model.recognize(uri,energy,invoiceMode);route=if(invoiceMode)"invoice" else "review" }
     val gallery=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if(it!=null)photo(it) }
+    val invoicePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { if(it!=null)photo(it) }
     val export=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { if(it!=null)model.export(it) }
     val restore=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { if(it!=null)model.inspectBackup(it) }
     fun startCamera(invoice: Boolean) { if(!invoice)newDraft();invoiceMode=invoice;model.invoice=null;route="camera" }
@@ -56,7 +57,7 @@ fun SimpleEnergyApp(model: AppModel = viewModel(), startDestination: String = "h
             if(model.busy || !model.ready) { LinearProgressIndicator(Modifier.fillMaxWidth());Text(if(invoiceMode)"Čítam faktúru v telefóne…" else "Hľadám displej a čítam číslice…",Modifier.padding(12.dp),style=MaterialTheme.typography.bodySmall) }
             if(model.ready) when(route) {
                 "home" -> SimpleHome(model,energy,onEnergy={energyName=it.name},onCamera={startCamera(false)},onGallery={newDraft();invoiceMode=false;gallery.launch("image/*")},onManual={newDraft();route="manual"},onHistory={route="history"},onSettings={route="settings"})
-                "camera" -> CameraScreen(invoiceMode,onPhoto={photo(it)},onGallery={gallery.launch("image/*")},onError={model.message=it})
+                "camera" -> CameraScreen(invoiceMode,onPhoto={photo(it)},onGallery={if(invoiceMode)invoicePicker.launch(arrayOf("image/*","application/pdf")) else gallery.launch("image/*")},onError={model.message=it})
                 "review" -> ReviewReading(model,energy,selected,draftValue,error,onSelect={index->selected=index;draftValue=model.scan!!.candidates[index].text},onConfirm={saveReading()},onCorrect={source="Ručne opravené";route="manual"},onCrop={route="crop"},onRetry={startCamera(false)})
                 "manual" -> PageColumn {
                     Text(energy.title,style=MaterialTheme.typography.headlineSmall)
@@ -67,7 +68,7 @@ fun SimpleEnergyApp(model: AppModel = viewModel(), startDestination: String = "h
                 }
                 "crop" -> model.scan?.let { scan -> Scanner(scan,model.busy,model::recognizeCrop,onPick={draftValue=it;selected=model.scan!!.candidates.indexOfFirst { c->c.text==it }.coerceAtLeast(0);route="review"},onManual={route="manual";source="Ručne opravené"}) }
                 "history" -> History(model,energy,onAdd={newDraft();route="manual"},onEdit={r->draftId=r.id;draftValue=r.value.toPlainString();draftDate=r.date.toString();draftNote=r.note;source="Ručne upravené";route="manual"})
-                "settings" -> SimpleSettings(model,energy,onInvoice={startCamera(true)},onInvoiceGallery={invoiceMode=true;model.invoice=null;gallery.launch("image/*")},onAdvanced={route="advanced"})
+                "settings" -> SimpleSettings(model,energy,onInvoice={startCamera(true)},onInvoiceGallery={invoiceMode=true;model.invoice=null;invoicePicker.launch(arrayOf("image/*","application/pdf"))},onAdvanced={route="advanced"})
                 "invoice" -> InvoiceReview(model,energy,onDone={route="settings"})
                 "advanced" -> Settings(model,energy,onExport={export.launch("energie-${LocalDate.now()}.json")},onRestore={restore.launch(arrayOf("application/json","text/plain","application/octet-stream"))})
             }
@@ -142,7 +143,7 @@ private fun SimpleSettings(model: AppModel,energy: Energy,onInvoice:()->Unit,onI
     PageColumn {
         Section("${energy.title} · jednoducho z faktúry") {
             Button(enabled=!model.busy,onClick=onInvoice,modifier=Modifier.fillMaxWidth()){Text("Odfotiť faktúru")}
-            OutlinedButton(enabled=!model.busy,onClick=onInvoiceGallery,modifier=Modifier.fillMaxWidth()){Text("Vybrať fotku faktúry")}
+            OutlinedButton(enabled=!model.busy,onClick=onInvoiceGallery,modifier=Modifier.fillMaxWidth()){Text("Vybrať faktúru (fotka alebo PDF)")}
             Text("Nájdené údaje pred použitím skontrolujete.",style=MaterialTheme.typography.bodySmall)
         }
         Section("Cena a mesačná záloha") {

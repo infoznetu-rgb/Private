@@ -38,10 +38,13 @@ class AppModel @JvmOverloads constructor(application: Application, databaseName:
         busy = true
         viewModelScope.launch {
             try {
-                val bitmap=MeterOcr.load(getApplication(),uri)
                 scanEnergy=energy
-                if(isInvoice) { invoice=InvoiceParser.parse(MeterOcr.document(bitmap),energy); proof=bitmap }
-                else { scan=MeterOcr.recognize(bitmap,energy); proof=bitmap }
+                if(isInvoice) {
+                    val result=MeterOcr.documentFromUri(getApplication(),uri)
+                    val parsed=InvoiceParser.parse(result.text,energy)
+                    invoice=if(result.truncated)parsed.copy(warnings=parsed.warnings+"Spracovaných je prvých 5 strán PDF. Skontrolujte aj ďalšie strany.") else parsed
+                    proof=result.bitmap
+                } else { val bitmap=MeterOcr.load(getApplication(),uri);scan=MeterOcr.recognize(bitmap,energy); proof=bitmap }
             }
             catch (e: Exception) { message = "Fotografiu sa nepodarilo rozpoznať. Skúste inú fotku alebo ručný odpočet. ${e.localizedMessage ?: ""}" }
             finally { busy = false }

@@ -18,7 +18,29 @@ import kotlin.coroutines.suspendCoroutine
 
 data class Candidate(val text: String, val rect: Rect, val warnings: List<String> = emptyList(), val blocked: Boolean = false, val evidence: String = "", val passes: Int = 1)
 data class Scan(val bitmap: Bitmap, val candidates: List<Candidate>, val warnings: List<String> = emptyList())
+data class DocumentScan(val bitmap: Bitmap, val text: String, val truncated: Boolean)
 object MeterOcr {
+    suspend fun documentFromUri(context: Context,uri: Uri): DocumentScan {
+        val pdf=withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri).use { stream -> val header=ByteArray(5);stream?.read(header)==5 && String(header,Charsets.US_ASCII)=="%PDF-" } }
+        if(!pdf) { val bitmap=load(context,uri);return DocumentScan(bitmap,document(bitmap),false) }
+        val descriptor=withContext(Dispatchers.IO) { requireNotNull(context.contentResolver.openFileDescriptor(uri,"r")) }
+        val renderer=withContext(Dispatchers.IO) { try { android.graphics.pdf.PdfRenderer(descriptor) } catch(e:Exception) { descriptor.close();throw e } }
+        var first: Bitmap?=null
+        val text=StringBuilder()
+        try {
+            for(index in 0 until minOf(renderer.pageCount,5)) {
+                val bitmap=withContext(Dispatchers.IO) {
+                    renderer.openPage(index).use { page ->
+                        val scale=2400f/maxOf(page.width,page.height)
+                        Bitmap.createBitmap((page.width*scale).toInt().coerceAtLeast(1),(page.height*scale).toInt().coerceAtLeast(1),Bitmap.Config.ARGB_8888).also { b -> b.eraseColor(android.graphics.Color.WHITE);page.render(b,null,Matrix().apply { setScale(scale,scale) },android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
+                    }
+                }
+                if(index==0)first=bitmap
+                try { text.append(document(bitmap)).append('\n') } finally { if(index>0)bitmap.recycle() }
+            }
+            return DocumentScan(requireNotNull(first),text.toString(),renderer.pageCount>5)
+        } finally { renderer.close();descriptor.close() }
+    }
     suspend fun load(context: Context, uri: Uri): Bitmap = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

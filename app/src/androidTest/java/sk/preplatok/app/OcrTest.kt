@@ -13,6 +13,23 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OcrTest {
+    @Test fun syntheticPdfInvoiceIsRenderedAndReadOffline() = runBlocking {
+        val context=androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val file=java.io.File.createTempFile("invoice-fixture-",".pdf",context.cacheDir)
+        val pdf=android.graphics.pdf.PdfDocument()
+        val page=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(800,1000,1).create())
+        val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.BLACK;textSize=27f }
+        page.canvas.drawColor(Color.WHITE)
+        page.canvas.drawText("Cena 0,245 EUR/kWh",30f,100f,paint)
+        page.canvas.drawText("Mesacna zaloha 45,00 EUR",30f,160f,paint)
+        pdf.finishPage(page);file.outputStream().use(pdf::writeTo);pdf.close()
+        try {
+            val result=MeterOcr.documentFromUri(context,android.net.Uri.fromFile(file))
+            val draft=InvoiceParser.parse(result.text,Energy.ELECTRICITY)
+            assertTrue(draft.prices.any { decimal(it.value)?.compareTo("0.245".toBigDecimal())==0 })
+            assertFalse(result.truncated)
+        } finally { file.delete() }
+    }
     @Test fun blankPhotoDoesNotProduceInventedDigits() = runBlocking {
         val blank=Bitmap.createBitmap(640,360,Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(180,180,180)) }
         assertTrue(MeterOcr.recognize(blank).candidates.isEmpty())
